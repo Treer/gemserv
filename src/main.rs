@@ -12,7 +12,7 @@ use std::net::ToSocketAddrs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tokio::net::TcpListener;
-use tokio::prelude::*;
+use tokio::io::AsyncReadExt;
 use tokio::runtime;
 use url::Url;
 
@@ -420,12 +420,12 @@ fn main() -> io::Result<()> {
         },
     };
     let loglev = match &cfg.log {
-        None => log::Level::Info,
+        None => log::LevelFilter::Info,
         Some(l) => {
             match l.as_str() {
-                "error" => log::Level::Error,
-                "warn" => log::Level::Warn,
-                "info" => log::Level::Info,
+                "error" => log::LevelFilter::Error,
+                "warn" => log::LevelFilter::Warn,
+                "info" => log::LevelFilter::Info,
                 _ => {
                     eprintln!("Incorrect log level in config file.");
                     return Ok(());
@@ -433,7 +433,7 @@ fn main() -> io::Result<()> {
             }
         },
     };
-    simple_logger::init_with_level(loglev).unwrap();
+    simple_logger::SimpleLogger::new().with_level(loglev).init().unwrap();
     let cmap = cfg.to_map();
     let default = &cfg.server[0].hostname;
     println!("Serving {} vhosts", cfg.server.len());
@@ -443,8 +443,7 @@ fn main() -> io::Result<()> {
         .next()
         .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
 
-    let mut runtime = runtime::Builder::new()
-        .threaded_scheduler()
+    let runtime = runtime::Builder::new_multi_thread()
         .enable_io()
         .enable_time()
         .build()?;
@@ -454,7 +453,7 @@ fn main() -> io::Result<()> {
     let acceptor = tls::acceptor_conf(cfg.clone())?;
 
     let fut = async {
-        let mut listener = TcpListener::bind(&addr).await?;
+        let listener = TcpListener::bind(&addr).await?;
         loop {
             let (stream, peer_addr) = listener.accept().await?;
             let acceptor = acceptor.clone();
@@ -462,14 +461,20 @@ fn main() -> io::Result<()> {
             let default = default.clone();
 
             let fut = async move {
-                let stream = match tokio_openssl::accept(&acceptor, stream).await {
+
+
+                let ssl = openssl::ssl::Ssl::new(acceptor.context()).unwrap();
+                let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
+                std::pin::Pin::new(&mut stream).accept().await.unwrap();
+                /*
+                let stream = match std::pin::Pin::new(&mut stream).accept().await {
                     Ok(s) => s,
                     Err(e) => {
                         log::error!("Error: {}",e);
                         return Ok(());
                     },
                 };
-
+                */
                 let srv = match stream.ssl().servername(NameType::HOST_NAME) {
                     Some(s) => match cmap.get(s) {
                         Some(ss) => ss,

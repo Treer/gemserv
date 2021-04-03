@@ -3,7 +3,8 @@ use std::marker::Unpin;
 use std::net::SocketAddr;
 
 use tokio::net::TcpStream;
-use tokio::prelude::*;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWriteExt;
 use tokio_openssl::SslStream;
 
 use crate::status::Status;
