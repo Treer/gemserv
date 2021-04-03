@@ -1,8 +1,10 @@
 use std::io;
+#[cfg(any(feature = "proxy"))]
 use std::marker::Unpin;
 use std::net::SocketAddr;
 
 use tokio::net::TcpStream;
+#[cfg(any(feature = "proxy"))]
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWriteExt;
 use tokio_openssl::SslStream;
@@ -44,6 +46,7 @@ impl Connection {
         Ok(())
     }
 
+    #[cfg(any(feature = "proxy"))]
     pub async fn send_stream<S: AsyncRead + Unpin>(&mut self, reader: &mut S) -> Result<(), io::Error> {
         tokio::io::copy(reader, &mut self.stream).await?;
         Ok(())

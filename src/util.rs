@@ -7,6 +7,7 @@ pub fn url_decode(url: &[u8]) -> String {
     return decoded
 }
 
+#[cfg(any(feature = "cgi", feature = "scgi"))]
 pub fn fingerhex(x509: &openssl::x509::X509) -> String {
     let finger = match x509.digest(openssl::hash::MessageDigest::sha256()) {
         Ok(f) => f,
