@@ -243,7 +243,10 @@ async fn handle_connection(
 
     match &srv.server.redirect {
         Some(re) => {
-            let u = url.path().trim_end_matches("/");
+            let u = match url.path() {
+                "/" => url.path(),
+                _ => url.path().trim_end_matches("/"),
+            };
             match re.get(u) {
                 Some(r) => {
                     logger::logger(con.peer_addr, Status::RedirectTemporary, &request);
