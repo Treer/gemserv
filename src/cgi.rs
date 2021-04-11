@@ -121,6 +121,7 @@ pub async fn cgi(
                 Err(_) => {
                     logger::logger(con.peer_addr, Status::CGIError, url.as_str());
                     con.send_status(Status::CGIError, None).await?;
+                    con.stream.shutdown().await?;
                     return Ok(());
                 },
             }
@@ -128,6 +129,7 @@ pub async fn cgi(
         Err(_) => {
             logger::logger(con.peer_addr, Status::CGIError, url.as_str());
             con.send_status(Status::CGIError, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         },
     };
@@ -135,15 +137,18 @@ pub async fn cgi(
     if !cmd.status.success() {
         logger::logger(con.peer_addr, Status::CGIError, url.as_str());
         con.send_status(Status::CGIError, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
     let cmd = cmd.stdout;
     if !check(cmd[0], con.peer_addr, url) {
         con.send_status(Status::CGIError, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
     con.send_raw(&cmd).await?;
+    con.stream.shutdown().await?;
     return Ok(());
 }
 
@@ -159,6 +164,7 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection, srv: &co
         Err(_) => {
             logger::logger(con.peer_addr, Status::CGIError, u.as_str());
             con.send_status(Status::CGIError, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -180,14 +186,17 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection, srv: &co
         tokio::time::Duration::from_secs(5), stream.read_to_end(&mut buf)).await {
         logger::logger(con.peer_addr, Status::CGIError, u.as_str());
         con.send_status(Status::CGIError, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
     let req = String::from_utf8_lossy(&buf[..]);
     if !check(req.as_bytes()[0], con.peer_addr, &u) {
         con.send_status(Status::CGIError, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
     con.send_raw(req.as_bytes()).await?;
+    con.stream.shutdown().await?;
     Ok(())
 }

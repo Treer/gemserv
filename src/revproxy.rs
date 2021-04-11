@@ -14,11 +14,13 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
     if p.len() == 1 {
         logger::logger(con.peer_addr, Status::NotFound, u.as_str());
         con.send_status(Status::NotFound, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
     if p[1] == "" || p[1] == "/" {
         logger::logger(con.peer_addr, Status::NotFound, u.as_str());
         con.send_status(Status::NotFound, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
     let addr = addr
@@ -34,6 +36,7 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
         Err(_) => {
             logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
             con.send_status(Status::ProxyError, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -57,6 +60,7 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
     stream.read_to_end(&mut buf).await?;
     // let req = String::from_utf8(buf[..].to_vec()).unwrap();
     con.send_raw(&buf).await?;
+    con.stream.shutdown().await?;
     Ok(())
 }
 
@@ -71,6 +75,7 @@ pub async fn proxy_all(addr: &str, u: url::Url, mut con: conn::Connection) -> Re
         Err(_) => {
             logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
             con.send_status(Status::ProxyError, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -95,5 +100,6 @@ pub async fn proxy_all(addr: &str, u: url::Url, mut con: conn::Connection) -> Re
 
     // stream to client
     con.send_stream(&mut stream).await?;
+    con.stream.shutdown().await?;
     Ok(())
 }

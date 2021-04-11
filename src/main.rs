@@ -13,6 +13,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tokio::net::TcpListener;
 use tokio::io::AsyncReadExt;
+ use tokio::io::AsyncWriteExt;
 use tokio::runtime;
 use url::Url;
 
@@ -66,6 +67,7 @@ async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> i
         }
         reader.consume(len);
     }
+    con.stream.shutdown().await?;
     Ok(())
 }
 
@@ -187,6 +189,7 @@ async fn handle_connection(
         Err(_) => {
             logger::logger(con.peer_addr, Status::BadRequest, "");
             con.send_status(Status::BadRequest, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -195,6 +198,7 @@ async fn handle_connection(
         Err(_) => {
             logger::logger(con.peer_addr, Status::BadRequest, "");
             con.send_status(Status::BadRequest, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -214,6 +218,7 @@ async fn handle_connection(
         Err(_) => {
             logger::logger(con.peer_addr, Status::BadRequest, &request);
             con.send_status(Status::BadRequest, None).await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
     };
@@ -221,6 +226,7 @@ async fn handle_connection(
     if Some(srv.server.hostname.as_str()) != url.host_str() {
         logger::logger(con.peer_addr, Status::ProxyRequestRefused, &request);
         con.send_status(Status::ProxyRequestRefused, None).await?;
+            con.stream.shutdown().await?;
         return Ok(());
     }
 
@@ -230,6 +236,7 @@ async fn handle_connection(
                 logger::logger(con.peer_addr, Status::ProxyRequestRefused, &request);
                 con.send_status(status::Status::ProxyRequestRefused, None)
                     .await?;
+                con.stream.shutdown().await?;
             }
         }
         None => {}
@@ -238,6 +245,7 @@ async fn handle_connection(
     if url.scheme() != "gemini" {
         logger::logger(con.peer_addr, Status::ProxyRequestRefused, &request);
         con.send_status(Status::ProxyRequestRefused, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
@@ -251,6 +259,7 @@ async fn handle_connection(
                 Some(r) => {
                     logger::logger(con.peer_addr, Status::RedirectTemporary, &request);
                     con.send_status(Status::RedirectTemporary, Some(r)).await?;
+                    con.stream.shutdown().await?;
                     return Ok(());
                 }
                 None => {}
@@ -336,11 +345,13 @@ async fn handle_connection(
         // See if it's a subpath of a CGI script before returning NotFound
         #[cfg(feature = "cgi")]
         if handle_cgi(&mut con, srv, &request, &url, &path).await? {
+            con.stream.shutdown().await?;
             return Ok(());
         }
 
         logger::logger(con.peer_addr, Status::NotFound, &request);
         con.send_status(Status::NotFound, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
@@ -357,6 +368,7 @@ async fn handle_connection(
                 Some(format!("{}/", url).as_str()),
             )
             .await?;
+            con.stream.shutdown().await?;
             return Ok(());
         }
         if path.join(&index).exists() {
@@ -375,18 +387,21 @@ async fn handle_connection(
 
     #[cfg(feature = "cgi")]
     if handle_cgi(&mut con, srv, &request, &url, &path).await? {
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
     if meta.is_file() && perm.mode() & 0o0111 == 0o0111  {
         logger::logger(con.peer_addr, Status::NotFound, &request);
         con.send_status(Status::NotFound, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
     if perm.mode() & 0o0444 != 0o0444  {
         logger::logger(con.peer_addr, Status::NotFound, &request);
         con.send_status(Status::NotFound, None).await?;
+        con.stream.shutdown().await?;
         return Ok(());
     }
 
@@ -403,6 +418,7 @@ async fn handle_connection(
     con.send_body(status::Status::Success, Some(&mime), Some(content))
         .await?;
     logger::logger(con.peer_addr, Status::Success, &request);
+    con.stream.shutdown().await?;
 
     Ok(())
 }
