@@ -2,6 +2,7 @@
 use openssl::ssl::{SslConnector, SslMethod};
 use std::io;
 use std::net::ToSocketAddrs;
+use std::pin::Pin;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -28,7 +29,7 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
 
     let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
     connector.set_verify(openssl::ssl::SslVerifyMode::NONE);
-    let config = connector.build().configure().unwrap();
+    let config = connector.build().configure().unwrap().into_ssl("localhost").unwrap();
 
     let stream = match TcpStream::connect(&addr).await {
         Ok(s) => s,
@@ -38,7 +39,8 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
             return Ok(());
         }
     };
-    let mut stream = match tokio_openssl::connect(config, "localhost", stream).await {
+    let mut stream = tokio_openssl::SslStream::new(config, stream).unwrap();
+    match Pin::new(&mut stream).connect().await {
         Ok(s) => s,
         Err(_) => {
             logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
@@ -59,7 +61,8 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
 pub async fn proxy_all(addr: &str, u: url::Url, mut con: conn::Connection) -> Result<(), io::Error> {
     let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
     connector.set_verify(openssl::ssl::SslVerifyMode::NONE);
-    let config = connector.build().configure().unwrap();
+    let domain = addr.splitn(2, ':').next().unwrap();
+    let config = connector.build().configure().unwrap().into_ssl(domain).unwrap();
 
     // TCP handshake
     let stream = match TcpStream::connect(&addr).await {
@@ -70,10 +73,10 @@ pub async fn proxy_all(addr: &str, u: url::Url, mut con: conn::Connection) -> Re
             return Ok(());
         }
     };
-    let domain = addr.splitn(2, ':').next().unwrap();
 
     // TLS handshake with SNI
-    let mut stream = match tokio_openssl::connect(config, domain, stream).await {
+    let mut stream = tokio_openssl::SslStream::new(config, stream).unwrap();
+    match Pin::new(&mut stream).connect().await {
         Ok(s) => s,
         Err(_) => {
             logger::logger(con.peer_addr, Status::ProxyError, u.as_str());

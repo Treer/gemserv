@@ -2,17 +2,18 @@
 extern crate serde_derive;
 
 use futures_util::future::TryFutureExt;
-use mime_guess;
+use new_mime_guess;
 use openssl::ssl::NameType;
 use std::env;
 use std::fs;
+use std::pin::Pin;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::net::ToSocketAddrs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tokio::net::TcpListener;
-use tokio::prelude::*;
+use tokio::io::AsyncReadExt;
 use tokio::runtime;
 use url::Url;
 
@@ -36,15 +37,9 @@ fn get_mime(path: &PathBuf) -> String {
         None => return "text/plain".to_string(),
     };
 
-    mime = match ext {
-        "gemini" => mime,
-        "gmi" => mime,
-        _ => {
-            match mime_guess::from_ext(ext).first() {
-                Some(m) => m.essence_str().to_string(),
-                None => "text/plain".to_string(),
-            }
-        },
+    mime = match new_mime_guess::from_ext(ext).first() {
+        Some(m) => m.essence_str().to_string(),
+        None => "text/plain".to_string(),
     };
 
     return mime;
@@ -447,8 +442,8 @@ fn main() -> io::Result<()> {
         .next()
         .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
 
-    let mut runtime = runtime::Builder::new()
-        .threaded_scheduler()
+    let mut runtime = runtime::Builder::new_multi_thread()
+    //    .threaded_scheduler()
         .enable_io()
         .enable_time()
         .build()?;
@@ -457,16 +452,19 @@ fn main() -> io::Result<()> {
 
     let acceptor = tls::acceptor_conf(cfg.clone())?;
 
-    let fut = async {
-        let mut listener = TcpListener::bind(&addr).await?;
+    let fut = async move {
+        let listener = TcpListener::bind(&addr).await?;
         loop {
             let (stream, peer_addr) = listener.accept().await?;
             let acceptor = acceptor.clone();
             let cmap = cmap.clone();
             let default = default.clone();
 
+            let ssl = openssl::ssl::Ssl::new(acceptor.context()).unwrap();
+            let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
+
             let fut = async move {
-                let stream = match tokio_openssl::accept(&acceptor, stream).await {
+                match Pin::new(&mut stream).accept().await {
                     Ok(s) => s,
                     Err(e) => {
                         log::error!("Error: {}",e);
