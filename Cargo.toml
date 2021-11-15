@@ -5,7 +5,7 @@ authors = ["int 80h <int@80h.dev>"]
 edition = "2018"
 description = "A gemini server"
 readme = "README"
-homepage = "gemini://80h.dev"
+homepage = "https://sr.ht/~int80h/gemserv/"
 repository = "https://git.sr.ht/~int80h/gemserv"
 license = "MIT"
 
