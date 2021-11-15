@@ -442,7 +442,7 @@ fn main() -> io::Result<()> {
         .next()
         .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
 
-    let mut runtime = runtime::Builder::new_multi_thread()
+    let runtime = runtime::Builder::new_multi_thread()
     //    .threaded_scheduler()
         .enable_io()
         .enable_time()
