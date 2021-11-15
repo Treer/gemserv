@@ -3,6 +3,12 @@ name = "gemserv"
 version = "0.4.6"
 authors = ["int 80h <int@80h.dev>"]
 edition = "2018"
+description = "A gemini server"
+readme = "README"
+homepage = "gemini://80h.dev"
+repository = "https://git.sr.ht/~int80h/gemserv"
+license = "MIT"
+license-file = "LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
