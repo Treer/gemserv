@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use tokio::net::TcpStream;
 use tokio::io::AsyncRead;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_openssl::SslStream;
 
 use crate::status::Status;
@@ -35,6 +35,9 @@ impl Connection {
         if let Some(b) = body {
             self.send_raw(b.as_bytes()).await?;
         }
+
+        futures_util::future::poll_fn(|ctx| std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)).await.unwrap();
+
         Ok(())
     }
 
@@ -46,6 +49,7 @@ impl Connection {
 
     pub async fn send_stream<S: AsyncRead + Unpin>(&mut self, reader: &mut S) -> Result<(), io::Error> {
         tokio::io::copy(reader, &mut self.stream).await?;
+        futures_util::future::poll_fn(|ctx| std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)).await.unwrap();
         Ok(())
     }
 }
