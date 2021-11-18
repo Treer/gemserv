@@ -238,7 +238,10 @@ async fn handle_connection(
 
     match &srv.server.redirect {
         Some(re) => {
-            let u = url.path().trim_end_matches("/");
+            let u = match url.path() {
+                "/" => "/",
+                _ => url.path().trim_end_matches("/"),
+            };
             match re.get(u) {
                 Some(r) => {
                     logger::logger(con.peer_addr, Status::RedirectTemporary, &request);
@@ -288,7 +291,10 @@ async fn handle_connection(
     #[cfg(feature = "scgi")]
     match &srv.server.scgi {
         Some(sc) => {
-        let u = url.path().trim_end_matches("/");
+            let u = match url.path() {
+                "/" => "/",
+                _ => url.path().trim_end_matches("/"),
+            };
         match sc.get(u) {
             Some(r) => {
                 cgi::scgi(r.to_string(), url, con, srv).await?;
