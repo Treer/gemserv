@@ -1,6 +1,6 @@
 [package]
 name = "gemserv"
-version = "0.4.7"
+version = "0.4.8"
 authors = ["int 80h <int@80h.dev>"]
 edition = "2018"
 description = "A gemini server"
@@ -12,7 +12,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.13.0", features = [ "full" ] }
+tokio = { version = "1.14", features = [ "full" ] }
 openssl = "0.10.38"
 tokio-openssl = "0.6.3"
 futures-util = "0.3.17"

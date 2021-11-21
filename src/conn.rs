@@ -12,6 +12,7 @@ use crate::status::Status;
 pub struct Connection {
     pub stream: SslStream<TcpStream>,
     pub peer_addr: SocketAddr,
+    pub srv: crate::config::ServerCfg,
 }
 
 impl Connection {

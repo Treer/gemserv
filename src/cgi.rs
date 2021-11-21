@@ -89,7 +89,6 @@ fn check(byt: u8, peer_addr: SocketAddr, u: &url::Url) -> bool {
 #[cfg(feature = "cgi")]
 pub async fn cgi(
     con: &mut conn::Connection,
-    srv: &config::ServerCfg,
     path: PathBuf,
     url: &url::Url,
     script_name: String,
@@ -97,7 +96,7 @@ pub async fn cgi(
 ) -> Result<(), io::Error> {
 
     let x509 = con.stream.ssl().peer_certificate();
-    let mut envs = envs(con.peer_addr, x509, srv, &url);
+    let mut envs = envs(con.peer_addr, x509, &con.srv, &url);
     envs.insert("SCRIPT_NAME".into(), script_name);
     envs.insert("PATH_INFO".into(), path_info);
 
@@ -148,7 +147,7 @@ pub async fn cgi(
 }
 
 #[cfg(feature = "scgi")]
-pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection, srv: &config::ServerCfg) -> Result<(), io::Error> {
+pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection) -> Result<(), io::Error> {
     let addr = addr
         .to_socket_addrs()?
         .next()
@@ -163,7 +162,7 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection, srv: &co
         }
     };
     let x509 = con.stream.ssl().peer_certificate();
-    let envs = envs(con.peer_addr, x509, srv, &u);
+    let envs = envs(con.peer_addr, x509, &con.srv, &u);
     let len = 0usize;
     let mut byt = String::from(format!("CONTENT_LENGTH\x00{}\x00SCGI\x001\x00
         RQUEST_METHOD\x00POST\x00REQUEST_URI\x00{}\x00", len, u.path()));
