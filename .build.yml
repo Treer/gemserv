@@ -1,0 +1,11 @@
+image: alpine/edge
+packages:
+  - rust
+  - cargo
+  - libressl-dev
+sources:
+  - https://git.sr.ht/~int80h/gemserv
+tasks:
+  - build: |
+        cd gemserv/
+        cargo build --release
