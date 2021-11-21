@@ -204,10 +204,15 @@ async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection, url
         }
     };
 
-    if Some(con.srv.server.hostname.as_str()) != url.host_str() {
-        logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
-        con.send_status(Status::ProxyRequestRefused, None).await.map_err(|e| e.to_string())?;
-        return Err("Wrong host".to_string());
+    match url.host_str() {
+        Some(h) => {
+            if con.srv.server.hostname.as_str() != h.to_lowercase() {
+                logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
+                con.send_status(Status::ProxyRequestRefused, None).await.map_err(|e| e.to_string())?;
+                return Err("Wrong host".to_string());
+            }
+        },
+        None => {}
     }
 
     match url.port() {
