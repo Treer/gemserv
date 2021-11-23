@@ -13,7 +13,13 @@ A gemini server written in rust.
 
 ## Installation and running
 
-OpenSSL 1.1.0g or LibreSSL 2.7.0 or newer is required.
+It's recommended that you build with Libressl instead of Openssl
+
+## Install from crates.io:
+
+cargo install gemserv
+
+## Build from source:
 
  - Clone the repo
  - If you want to use all features run 'cargo build --release' or if you only
@@ -25,20 +31,6 @@ OpenSSL 1.1.0g or LibreSSL 2.7.0 or newer is required.
 
 In the init-scripts directory there's OpenRC(Courtesy of Tastytea) and systemd
 service files.
-
-### NetBSD
-If running on NetBSD you'll need to set the environmental variable OPENSSL_DIR
-before compiling.
-
-'export OPENSSL_DIR="/usr/pkg"'
-
-Also to run you'll need to symlink libssl, and libcrypt to "/usr/lib" by
-running:
-
-'ln -s /usr/pkg/lib/libssl.so.1.1 /usr/lib'
-'ln -s /usr/pkg/lib/libcrypt.so.1.1 /usr/lib'
-
-Thanks to tiwesdaeg for figuring it out.
 
 ## CGI and SCGI
 

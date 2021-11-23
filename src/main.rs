@@ -17,15 +17,17 @@ use tokio::io::AsyncReadExt;
 use tokio::runtime;
 use url::Url;
 
+mod lib;
 mod cgi;
 mod config;
-mod status;
-use status::Status;
-mod conn;
 mod logger;
 mod revproxy;
-mod tls;
-mod util;
+
+use lib::util;
+use lib::conn;
+use lib::status;
+use status::Status;
+use lib::tls;
 
 fn get_mime(path: &PathBuf) -> String {
     let mut mime = "text/gemini".to_string();
