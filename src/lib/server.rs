@@ -1,3 +1,4 @@
+#![allow(unreachable_code)]
 use tokio::net::TcpListener;
 use tokio::io::AsyncReadExt;
 use openssl::ssl::SslAcceptor;
@@ -8,16 +9,14 @@ use url::Url;
 use std::io;
 use std::collections::HashMap;
 use std::future::Future;
-//use std::sync::Arc;
+use std::sync::Arc;
 use std::pin::Pin;
 
 use crate::config;
 use crate::conn;
 use crate::logger;
 use crate::status::Status;
-use crate::errors;
-
-type Result<T=()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use crate::errors::{GemError, Result};
 
 pub trait Handler: FnMut(conn::Connection, url::Url) -> Pin<Box<dyn Future<Output = Result> + Send>> + Send + Sync + Copy {}
 impl<T> Handler for T
@@ -33,64 +32,87 @@ where
 }
 
 pub struct Server {
-    pub listener: TcpListener,
+    pub listener: Vec<TcpListener>,
     pub acceptor: SslAcceptor,
 }
 
 impl Server {
-    pub async fn bind(addr: String,
+    pub async fn bind(addr: Vec<std::net::SocketAddr>,
         acceptor: fn(config::Config) -> std::result::Result<SslAcceptor, ErrorStack>,
         cfg: config::Config) -> io::Result<Server> 
     {
-        Ok(Server {
-            listener: TcpListener::bind(addr).await?,
-            acceptor: acceptor(cfg)?,
-        })
+        if addr.len() == 1 {
+            Ok(Server {
+                listener: vec![TcpListener::bind(addr[0].to_owned()).await?],
+                acceptor: acceptor(cfg)?,
+            })
+        } else {
+            let mut listener: Vec<TcpListener> = Vec::new();
+            for a in addr {
+                listener.append(&mut vec![TcpListener::bind(a.to_owned()).await?]);
+            }
+            Ok(Server {
+                listener,
+                acceptor: acceptor(cfg)?,
+            })
+        }
     }
 
     pub async fn serve(self, cmap: HashMap<String, config::ServerCfg>, default: String,
         handler: impl Handler + 'static + Copy) -> Result
     {
-        loop {
-            let (stream, peer_addr) = self.listener.accept().await?;
-            let acceptor = self.acceptor.clone();
+        for listen in self.listener  {
             let cmap = cmap.clone();
             let default = default.clone();
-            let mut handler = handler.clone();
-
-            let ssl = openssl::ssl::Ssl::new(acceptor.context()).unwrap();
-            let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
-
+            let listen = Arc::new(listen);
+            let acceptor = Arc::new(self.acceptor.clone());
             tokio::spawn(async move {
-                match Pin::new(&mut stream).accept().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        log::error!("Error: {}",e);
-                        return Ok(());
-                    },
-                };
-                let srv = match stream.ssl().servername(NameType::HOST_NAME) {
-                    Some(s) => match cmap.get(s) {
-                        Some(ss) => ss,
-                        None => cmap.get(&default).unwrap(),
-                    },
-                    None => cmap.get(&default).unwrap(),
-                }.to_owned();
+                loop {
+                    let (stream, peer_addr) = listen.accept().await?;
+                    let local_addr = stream.local_addr().unwrap();
+                    let acceptor = acceptor.clone();
+                    let cmap = cmap.clone();
+                    let default = default.clone();
+                    let mut handler = handler.clone();
 
-                let con = conn::Connection { stream, peer_addr, srv };
-                let (con, url) = match get_request(con).await {
-                    Ok((c, u)) => (c, u),
-                    Err(_) => return Ok(()) as io::Result<()>,
-                };
-                
-                match handler(con, url).await {
-                    Ok(o) => o,
-                    Err(_) => return Ok(()) as io::Result<()>,
+                    let ssl = openssl::ssl::Ssl::new(acceptor.context()).unwrap();
+                    let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
+
+                    tokio::spawn(async move {
+                        match Pin::new(&mut stream).accept().await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                log::error!("Error: {}",e);
+                                return Ok(());
+                            },
+                        };
+                        let srv = match stream.ssl().servername(NameType::HOST_NAME) {
+                            Some(s) => match cmap.get(s) {
+                                Some(ss) => ss,
+                                None => cmap.get(&default).unwrap(),
+                            },
+                            None => cmap.get(&default).unwrap(),
+                        }.to_owned();
+
+                        let con = conn::Connection { stream, local_addr, peer_addr, srv };
+                        let (con, url) = match get_request(con).await {
+                            Ok((c, u)) => (c, u),
+                            Err(_) => return Ok(()) as io::Result<()>,
+                        };
+                        
+                        match handler(con, url).await {
+                            Ok(o) => o,
+                            Err(_) => return Ok(()) as io::Result<()>,
+                        }
+
+                        Ok(()) as io::Result<()>
+                    });
                 }
-
                 Ok(()) as io::Result<()>
             });
         }
+        tokio::signal::ctrl_c().await.expect("failed to listen for event");
+        Ok(())
     }
 }
 
@@ -137,15 +159,14 @@ pub async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection,
             if con.srv.server.hostname.as_str() != h.to_lowercase() {
                 logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
                 con.send_status(Status::ProxyRequestRefused, None).await.map_err(|e| e.to_string())?;
-                return Err(Box::new(errors::GemError("Wrong host".into())));
+                return Err(Box::new(GemError("Wrong host".into())));
             }
         },
         None => {}
     }
-
     match url.port() {
         Some(p) => {
-            if p != con.srv.port {
+            if p != con.local_addr.port() {
                 logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
                 con.send_status(Status::ProxyRequestRefused, None)
                     .await.map_err(|e| e.to_string())?;
@@ -153,11 +174,10 @@ pub async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection,
         }
         None => {}
     }
-
     if url.scheme() != "gemini" {
         logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
         con.send_status(Status::ProxyRequestRefused, None).await.map_err(|e| e.to_string())?;
-        return Err(Box::new(errors::GemError("scheme not gemini".into())));
+        return Err(Box::new(GemError("scheme not gemini".into())));
     }
     
     return Ok((con, url))

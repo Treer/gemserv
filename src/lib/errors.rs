@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+pub type Result<T=()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 #[derive(Debug)]
 pub struct GemError(pub String);
 

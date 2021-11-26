@@ -1,8 +1,9 @@
 use crate::status;
+use crate::lib::errors;
 use log::{info, warn};
 use std::net::SocketAddr;
 
-pub fn init(loglev: &Option<String>) {
+pub fn init(loglev: &Option<String>) -> errors::Result {
     let loglev = match loglev {
         None => log::Level::Info,
         Some(l) => {
@@ -11,13 +12,13 @@ pub fn init(loglev: &Option<String>) {
                 "warn" => log::Level::Warn,
                 "info" => log::Level::Info,
                 _ => {
-                    eprintln!("Incorrect log level in config file.");
-                    std::process::exit(1);
+                    return Err(Box::new(errors::GemError("Incorrect log level in config file.".to_string())));
                },
             }
         },
     };
     simple_logger::init_with_level(loglev).unwrap();
+    return Ok(())
 }
 
 pub fn logger(addr: SocketAddr, stat: status::Status, req: &str) {
