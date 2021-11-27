@@ -1,9 +1,11 @@
 [package]
 name = "gemserv"
-version = "0.4.9"
+version = "0.5.0"
 authors = ["int 80h <int@80h.dev>"]
 edition = "2018"
 description = "A gemini server"
+keywords = ["server", "gemini", "protocol"]
+categories = ["network-programming"]
 readme = "README"
 homepage = "https://sr.ht/~int80h/gemserv/"
 repository = "https://git.sr.ht/~int80h/gemserv"
@@ -15,15 +17,15 @@ license = "MIT"
 tokio = { version = "1.14", features = [ "full" ] }
 openssl = "0.10.38"
 tokio-openssl = "0.6.3"
-futures-util = "0.3.17"
+futures-util = "0.3.18"
 toml = "0.5.8"
 serde = "1.0.130"
 serde_derive = "1.0.130"
 url = "2.2.2"
-new_mime_guess = "3.0.1"
+new_mime_guess = "3.0.2"
 mime = "0.3.16"
 log = "0.4.14"
-simple_logger = "1.13"
+simple_logger = "1.15"
 
 [features]
 default = [ "cgi", "scgi", "proxy" ]
