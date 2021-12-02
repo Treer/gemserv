@@ -6,14 +6,16 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use url::Url;
 
-use crate::util;
-use crate::conn;
-use crate::status::Status;
+#[cfg(any(feature = "cgi", feature = "scgi"))]
 use crate::cgi;
+use crate::conn;
 use crate::logger;
+#[cfg(feature = "proxy")]
 use crate::revproxy;
+use crate::status::Status;
+use crate::util;
 
-type Result<T=()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn get_mime(path: &PathBuf) -> String {
     let mut mime = "text/gemini".to_string();
@@ -36,8 +38,7 @@ fn get_mime(path: &PathBuf) -> String {
 async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> io::Result<()> {
     let fd = File::open(path)?;
     let mut reader = BufReader::with_capacity(1024 * 1024, fd);
-    con.send_status(Status::Success, Some(&meta))
-        .await?;
+    con.send_status(Status::Success, Some(&meta)).await?;
     loop {
         let len = {
             let buf = reader.fill_buf()?;
@@ -132,33 +133,30 @@ async fn handle_cgi(
 
         match &con.srv.server.cgipath {
             Some(c) => {
-            if path.starts_with(c) {
-                if perm.mode() & 0o0111 == 0o0111 {
-                    cgi::cgi(con, path, url, script_name, path_info).await?;
-                    return Ok(true);
-                } else {
-                    logger::logger(con.peer_addr, Status::CGIError, request);
-                    con.send_status(Status::CGIError, None).await?;
-                    return Ok(true);
+                if path.starts_with(c) {
+                    if perm.mode() & 0o0111 == 0o0111 {
+                        cgi::cgi(con, path, url, script_name, path_info).await?;
+                        return Ok(true);
+                    } else {
+                        logger::logger(con.peer_addr, Status::CGIError, request);
+                        con.send_status(Status::CGIError, None).await?;
+                        return Ok(true);
+                    }
                 }
             }
-            },
             None => {
                 if meta.is_file() && perm.mode() & 0o0111 == 0o0111 {
                     cgi::cgi(con, path, url, script_name, path_info).await?;
                     return Ok(true);
                 }
-            },
+            }
         }
     }
     Ok(false)
 }
 
 // TODO Rewrite this monster.
-pub async fn handle_connection(
-    mut con: conn::Connection,
-    url: url::Url
-) -> Result {
+pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Result {
     let index = match &con.srv.server.index {
         Some(i) => i.clone(),
         None => "index.gemini".to_string(),
@@ -223,17 +221,16 @@ pub async fn handle_connection(
                 "/" => "/",
                 _ => url.path().trim_end_matches("/"),
             };
-        match sc.get(u) {
-            Some(r) => {
-                cgi::scgi(r.to_string(), url, con).await?;
-                return Ok(());
+            match sc.get(u) {
+                Some(r) => {
+                    cgi::scgi(r.to_string(), url, con).await?;
+                    return Ok(());
+                }
+                None => {}
             }
-            None => {}
         }
-        },
-        None => {},
+        None => {}
     }
-
 
     let mut path = PathBuf::new();
 
@@ -246,7 +243,12 @@ pub async fn handle_connection(
             path.push("/home/");
         }
         if usr.len() == 2 {
-            path.push(format!("{}/{}/{}", usr[0], "public_gemini", util::url_decode(usr[1].as_bytes())));
+            path.push(format!(
+                "{}/{}/{}",
+                usr[0],
+                "public_gemini",
+                util::url_decode(usr[1].as_bytes())
+            ));
         } else {
             path.push(format!("{}/{}/", usr[0], "public_gemini"));
         }
@@ -304,13 +306,13 @@ pub async fn handle_connection(
         return Ok(());
     }
 
-    if meta.is_file() && perm.mode() & 0o0111 == 0o0111  {
+    if meta.is_file() && perm.mode() & 0o0111 == 0o0111 {
         logger::logger(con.peer_addr, Status::NotFound, &url.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
 
-    if perm.mode() & 0o0444 != 0o0444  {
+    if perm.mode() & 0o0444 != 0o0444 {
         logger::logger(con.peer_addr, Status::NotFound, &url.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());

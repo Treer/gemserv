@@ -4,9 +4,11 @@ use std::io;
 use std::net::SocketAddr;
 
 #[cfg(feature = "cgi")]
-use tokio::process::Command;
-#[cfg(feature = "cgi")]
 use std::path::PathBuf;
+#[cfg(feature = "cgi")]
+use tokio::process::Command;
+
+use tokio_rustls::rustls::ServerConnection;
 
 #[cfg(feature = "scgi")]
 use std::net::ToSocketAddrs;
@@ -22,39 +24,51 @@ use crate::status::Status;
 use crate::util;
 
 #[cfg(any(feature = "cgi", feature = "scgi"))]
-fn envs(peer_addr: SocketAddr, x509: Option<openssl::x509::X509>, srv: &config::ServerCfg, url: &url::Url) -> HashMap<String, String> {
+fn envs(
+    peer_addr: SocketAddr,
+    session: &ServerConnection,
+    srv: &config::ServerCfg,
+    url: &url::Url,
+) -> HashMap<String, String> {
     let mut envs = HashMap::new();
     envs.insert("GATEWAY_INTERFACE".to_string(), "CGI/1.1".to_string());
     envs.insert("GEMINI_URL".to_string(), url.to_string());
-    envs.insert("SERVER_NAME".to_string(), url.host_str().unwrap().to_string());
+    envs.insert(
+        "SERVER_NAME".to_string(),
+        url.host_str().unwrap().to_string(),
+    );
     envs.insert("SERVER_PROTOCOL".to_string(), "GEMINI".to_string());
     let addr = peer_addr.ip().to_string();
     envs.insert("REMOTE_ADDR".to_string(), addr.clone());
     envs.insert("REMOTE_HOST".to_string(), addr);
     let port = peer_addr.port().to_string();
     envs.insert("REMOTE_PORT".to_string(), port);
-    envs.insert("SERVER_SOFTWARE".to_string(), env!("CARGO_PKG_NAME").to_string());
+    envs.insert(
+        "SERVER_SOFTWARE".to_string(),
+        env!("CARGO_PKG_NAME").to_string(),
+    );
 
     if let Some(q) = url.query() {
         envs.insert("QUERY_STRING".to_string(), q.to_string());
     }
 
-    match x509 {
-        Some(x) => {
-            envs.insert("AUTH_TYPE".to_string(), "Certificate".to_string());
+    if let Some(cert) = session.peer_certificates() {
+        let cert = tokio_rustls::rustls::Certificate::as_ref(&cert[0]);
+        match x509_parser::parse_x509_certificate(cert) {
+            Ok((_, x509)) => {
+                let user = x509
+                    .subject()
+                    .iter_common_name()
+                    .next()
+                    .and_then(|cn| cn.as_str().ok())
+                    .unwrap();
 
-            let cn = x.subject_name().entries_by_nid(openssl::nid::Nid::COMMONNAME);
-            for c in cn {
-               let cd = match c.data().as_utf8() {
-                    Ok(n) => n.to_string(),
-                    _ => "".to_string(),
-                };
-               envs.insert("REMOTE_USER".to_string(), cd);
+                envs.insert("AUTH_TYPE".to_string(), "Certificate".to_string());
+                envs.insert("REMOTE_USER".to_string(), user.to_string());
+                envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(&cert));
             }
-
-            envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(&x));
-        },
-        None => {},
+            Err(_) => {}
+        }
     }
 
     match &srv.server.cgienv {
@@ -73,15 +87,15 @@ fn check(byt: u8, peer_addr: SocketAddr, u: &url::Url) -> bool {
     match byt {
         49 => {
             logger::logger(peer_addr, Status::Input, u.as_str());
-        },
+        }
         50 => {
             logger::logger(peer_addr, Status::Success, u.as_str());
-        },
+        }
         51..=54 => {}
         _ => {
             logger::logger(peer_addr, Status::CGIError, u.as_str());
             return false;
-        },
+        }
     }
     true
 }
@@ -92,19 +106,18 @@ pub async fn cgi(
     path: PathBuf,
     url: &url::Url,
     script_name: String,
-    path_info: String
+    path_info: String,
 ) -> Result<(), io::Error> {
-
-    let x509 = con.stream.ssl().peer_certificate();
-    let mut envs = envs(con.peer_addr, x509, &con.srv, &url);
+    let (_, session) = con.stream.get_ref();
+    let mut envs = envs(con.peer_addr, session, &con.srv, &url);
     envs.insert("SCRIPT_NAME".into(), script_name);
     envs.insert("PATH_INFO".into(), path_info);
 
     match path.parent() {
         Some(p) => {
             std::env::set_current_dir(p)?;
-        },
-        None => {},
+        }
+        None => {}
     }
 
     let cmd = Command::new(path.to_str().unwrap())
@@ -113,22 +126,20 @@ pub async fn cgi(
         .output();
 
     let cmd = match tokio::time::timeout(tokio::time::Duration::from_secs(5), cmd).await {
-        Ok(c) => {
-            match c {
-                Ok(cc) => cc,
+        Ok(c) => match c {
+            Ok(cc) => cc,
 
-                Err(_) => {
-                    logger::logger(con.peer_addr, Status::CGIError, url.as_str());
-                    con.send_status(Status::CGIError, None).await?;
-                    return Ok(());
-                },
+            Err(_) => {
+                logger::logger(con.peer_addr, Status::CGIError, url.as_str());
+                con.send_status(Status::CGIError, None).await?;
+                return Ok(());
             }
         },
         Err(_) => {
             logger::logger(con.peer_addr, Status::CGIError, url.as_str());
             con.send_status(Status::CGIError, None).await?;
             return Ok(());
-        },
+        }
     };
 
     if !cmd.status.success() {
@@ -161,11 +172,15 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection) -> Resul
             return Ok(());
         }
     };
-    let x509 = con.stream.ssl().peer_certificate();
-    let envs = envs(con.peer_addr, x509, &con.srv, &u);
+    let (_, session) = con.stream.get_ref();
+    let envs = envs(con.peer_addr, session, &con.srv, &u);
     let len = 0usize;
-    let mut byt = String::from(format!("CONTENT_LENGTH\x00{}\x00SCGI\x001\x00
-        RQUEST_METHOD\x00POST\x00REQUEST_URI\x00{}\x00", len, u.path()));
+    let mut byt = String::from(format!(
+        "CONTENT_LENGTH\x00{}\x00SCGI\x001\x00
+        RQUEST_METHOD\x00POST\x00REQUEST_URI\x00{}\x00",
+        len,
+        u.path()
+    ));
     for (k, v) in envs.iter() {
         byt.push_str(&format!("{}\x00{}\x00", k, v));
     }
@@ -176,7 +191,11 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection) -> Resul
 
     let mut buf = vec![];
     if let Err(_) = tokio::time::timeout(
-        tokio::time::Duration::from_secs(5), stream.read_to_end(&mut buf)).await {
+        tokio::time::Duration::from_secs(5),
+        stream.read_to_end(&mut buf),
+    )
+    .await
+    {
         logger::logger(con.peer_addr, Status::CGIError, u.as_str());
         con.send_status(Status::CGIError, None).await?;
         return Ok(());

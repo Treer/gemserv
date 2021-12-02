@@ -1,69 +1,163 @@
-extern crate openssl;
-extern crate tokio_openssl;
-use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, BufReader};
+use std::sync::Arc;
+use std::time::SystemTime;
 
-use openssl::error::ErrorStack;
-use openssl::ssl::NameType;
-use openssl::ssl::SniError;
-use openssl::ssl::SslContextBuilder;
-use openssl::ssl::SslVersion;
-use openssl::ssl::SslVerifyMode;
-use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+use rustls::client::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier, ServerName};
+use rustls::internal::msgs::enums::SignatureScheme;
+use rustls::internal::msgs::handshake::DigitallySignedStruct;
+use rustls::internal::msgs::handshake::DistinguishedNames;
+use rustls::server::{ClientCertVerified, ClientCertVerifier, ResolvesServerCertUsingSni};
+use rustls::sign::{self, CertifiedKey};
+use rustls::{Certificate, Error, PrivateKey};
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use tokio_rustls::rustls;
+use tokio_rustls::TlsAcceptor;
 
 use crate::config;
 
-pub fn acceptor_conf(cfg: config::Config) -> Result<SslAcceptor, ErrorStack> {
-    let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls_server())?;
-    acceptor.set_min_proto_version(Some(SslVersion::TLS1_2))?;
-    let mut map = HashMap::new();
-    let mut num = 1;
+pub fn tls_acceptor_conf(cfg: config::Config) -> io::Result<TlsAcceptor> {
+    let resolver = load_keypair(cfg)?;
+    let config = rustls::server::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_client_cert_verifier(Arc::new(GeminiClientAuth))
+        .with_cert_resolver(Arc::new(resolver));
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+
+    Ok(acceptor)
+}
+
+pub fn load_certs(path: &String) -> io::Result<Vec<Certificate>> {
+    certs(&mut BufReader::new(File::open(path)?))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
+        .map(|mut certs| certs.drain(..).map(Certificate).collect())
+}
+
+fn load_key(path: &String) -> io::Result<Vec<PrivateKey>> {
+    pkcs8_private_keys(&mut std::io::BufReader::new(std::fs::File::open(path)?))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
+        .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
+}
+
+fn load_keypair(cfg: config::Config) -> io::Result<ResolvesServerCertUsingSni> {
+    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+
     for server in cfg.server.iter() {
-        let mut ctx = SslContextBuilder::new(SslMethod::tls_server())?;
-        ctx.set_verify(SslVerifyMode::NONE);
-        match ctx.set_private_key_file(&server.key, SslFiletype::PEM) {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("Error: Can't load key file");
-                return Err(e);
-            }
-        };
-        match ctx.set_certificate_chain_file(&server.cert) {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("Error: Can't load cert file");
-                return Err(e);
-            }
-        };
-        let ctx = ctx.build();
-        map.insert(server.hostname.clone(), ctx.clone());
-        if num == 1 {
-            map.insert("default".to_string(), ctx);
-            num += 1;
-        }
+        let key = load_key(&server.key)?.remove(0);
+        let certs = load_certs(&server.cert)?;
+        let signing_key = sign::any_supported_type(&key).expect("error loading key");
+
+        resolver
+            .add(
+                &server.hostname.clone(),
+                CertifiedKey::new(certs, signing_key),
+            )
+            .expect("error loading key");
+    }
+    Ok(resolver)
+}
+
+struct GeminiClientAuth;
+
+impl ClientCertVerifier for GeminiClientAuth {
+    fn client_auth_root_subjects(&self) -> Option<DistinguishedNames> {
+        Some(Vec::new())
     }
 
-    let ctx_builder = &mut *acceptor;
-    ctx_builder.set_servername_callback(move |ssl, _alert| -> Result<(), SniError> {
-        ssl.set_ssl_context({
-            let hostname = ssl.servername(NameType::HOST_NAME);
-            if let Some(host) = hostname {
-                if let Some(ctx) = map.get(host) {
-                    &ctx
-                } else {
-                    &map.get(&"default".to_string()).expect("Can't get default")
-                }
-            } else {
-                &map.get(&"default".to_string()).expect("Can't get default")
-            }
-        })
-        .expect("Can't get sni");
-        // for client certs we don't have anything to verify right now?
-        ssl.set_verify_callback(SslVerifyMode::PEER, |_ver, _store| -> bool {
-            return true
-        });
+    fn verify_client_cert(
+        &self,
+        _end_entity: &Certificate,
+        _intermidiates: &[Certificate],
+        _now: SystemTime,
+    ) -> Result<ClientCertVerified, Error> {
+        Ok(ClientCertVerified::assertion())
+    }
 
-        Ok(())
-    });
+    fn offer_client_auth(&self) -> bool {
+        true
+    }
 
-    Ok(acceptor.build())
+    fn client_auth_mandatory(&self) -> Option<bool> {
+        Some(false)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &Certificate,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &Certificate,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        tokio_rustls::rustls::client::WebPkiVerifier::verification_schemes()
+    }
 }
+
+pub struct GeminiServerAuth;
+
+impl ServerCertVerifier for GeminiServerAuth {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &Certificate,
+        _intermediates: &[Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: SystemTime,
+    ) -> Result<ServerCertVerified, Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+}
+// This was pull out of the depths of git.
+// Rustls won't let self signed certs be used with sni which gemini requires.
+// At 1.4.2 in https://gemini.circumlunar.space/docs/spec-spec.txt
+/*
+pub struct CertResolver {
+    map: HashMap<String, Box<CertifiedKey>>,
+}
+
+impl CertResolver {
+    pub fn from_config(cfg: config::Config) -> errors::Result<Self> {
+        let mut map = HashMap::new();
+
+        for server in cfg.server.iter() {
+            let key = load_key(&server.key)?;
+            let certs = load_certs(&server.cert)?;
+            let signing_key = RsaSigningKey::new(&key).unwrap();
+
+            //let signing_key_boxed: Arc<Box<dyn SigningKey>> = Arc::new(Box::new(signing_key));
+            let signing_key_boxed = Arc::new(signing_key);
+            map.insert(
+                server.hostname.clone(),
+                Box::new(CertifiedKey::new(certs, signing_key_boxed)),
+            );
+        }
+
+        Ok(CertResolver { map })
+    }
+}
+
+impl ResolvesServerCert for CertResolver {
+    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        if let Some(hostname) = client_hello.server_name() {
+            if let Some(cert) = self.map.get(hostname.into()) {
+                let cert_box = Arc::new(cert);
+                return Some(&cert_box);
+            }
+        }
+
+        None
+    }
+}
+*/

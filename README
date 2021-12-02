@@ -13,8 +13,6 @@ A gemini server written in rust.
 
 ## Installation and running
 
-It's recommended that you build with Libressl instead of Openssl.
-
 To run either run "cargo run /path/to/config" or if no configuration is
 specified it will look for "/usr/local/etc/gemserv.conf"
 

@@ -1,14 +1,18 @@
 #![cfg(feature = "proxy")]
-use openssl::ssl::{SslConnector, SslMethod};
+use std::convert::TryFrom;
 use std::io;
 use std::net::ToSocketAddrs;
-use std::pin::Pin;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+use tokio_rustls::rustls;
+use tokio_rustls::TlsConnector;
 
 use crate::conn;
 use crate::logger;
 use crate::status::Status;
+use crate::tls;
 
 pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Result<(), io::Error> {
     let p: Vec<&str> = u.path().trim_start_matches("/").splitn(2, "/").collect();
@@ -22,32 +26,25 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
+    let domain = &addr;
     let addr = addr
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
 
-    let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
-    connector.set_verify(openssl::ssl::SslVerifyMode::NONE);
-    let config = connector.build().configure().unwrap().into_ssl("localhost").unwrap();
+    let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(Arc::new(tls::GeminiServerAuth))
+        .with_no_client_auth();
+    let connector = TlsConnector::from(Arc::new(config));
 
-    let stream = match TcpStream::connect(&addr).await {
-        Ok(s) => s,
-        Err(_) => {
-            logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
-            con.send_status(Status::ProxyError, None).await?;
-            return Ok(());
-        }
-    };
-    let mut stream = tokio_openssl::SslStream::new(config, stream).unwrap();
-    match Pin::new(&mut stream).connect().await {
-        Ok(s) => s,
-        Err(_) => {
-            logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
-            con.send_status(Status::ProxyError, None).await?;
-            return Ok(());
-        }
-    };
+    let stream = TcpStream::connect(&addr).await?;
+
+    let domain = rustls::ServerName::try_from(domain.as_str())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?;
+
+    let mut stream = connector.connect(domain, stream).await?;
+
     stream.write_all(p[1].as_bytes()).await?;
     stream.flush().await?;
 
@@ -58,32 +55,25 @@ pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Resu
     Ok(())
 }
 
-pub async fn proxy_all(addr: &str, u: url::Url, mut con: conn::Connection) -> Result<(), io::Error> {
-    let mut connector = SslConnector::builder(SslMethod::tls()).unwrap();
-    connector.set_verify(openssl::ssl::SslVerifyMode::NONE);
+pub async fn proxy_all(
+    addr: &str,
+    u: url::Url,
+    mut con: conn::Connection,
+) -> Result<(), io::Error> {
     let domain = addr.splitn(2, ':').next().unwrap();
-    let config = connector.build().configure().unwrap().into_ssl(domain).unwrap();
 
-    // TCP handshake
-    let stream = match TcpStream::connect(&addr).await {
-        Ok(s) => s,
-        Err(_) => {
-            logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
-            con.send_status(Status::ProxyError, None).await?;
-            return Ok(());
-        }
-    };
+    let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(Arc::new(tls::GeminiServerAuth))
+        .with_no_client_auth();
+    let connector = TlsConnector::from(Arc::new(config));
 
-    // TLS handshake with SNI
-    let mut stream = tokio_openssl::SslStream::new(config, stream).unwrap();
-    match Pin::new(&mut stream).connect().await {
-        Ok(s) => s,
-        Err(_) => {
-            logger::logger(con.peer_addr, Status::ProxyError, u.as_str());
-            con.send_status(Status::ProxyError, None).await?;
-            return Ok(());
-        }
-    };
+    let stream = TcpStream::connect(&addr).await?;
+
+    let domain = rustls::ServerName::try_from(domain)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?;
+
+    let mut stream = connector.connect(domain, stream).await?;
 
     // send request: URL + CRLF
     stream.write_all(u.as_ref().as_bytes()).await?;

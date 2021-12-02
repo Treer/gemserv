@@ -1,12 +1,12 @@
 extern crate serde_derive;
 extern crate toml;
-use tokio::fs;
-use std::collections::HashMap;
-use std::path;
-use std::env;
 use crate::lib::errors;
+use std::collections::HashMap;
+use std::env;
+use std::path;
+use tokio::fs;
 
-type Result<T=()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -43,7 +43,7 @@ pub struct Server {
 
 #[derive(Debug, Clone)]
 pub struct ServerCfg {
-//    pub port: u16,
+    //    pub port: u16,
     pub server: Server,
 }
 
@@ -56,7 +56,9 @@ impl Config {
             if !p.exists() {
                 return Err(Box::new(errors::GemError(
                     "Please run with the path to the config file. \
-                    Or create the config as /usr/local/etc/gemserv.conf".to_string())));
+                    Or create the config as /usr/local/etc/gemserv.conf"
+                        .to_string(),
+                )));
             }
         } else {
             p.push(&args[1]);
@@ -67,22 +69,30 @@ impl Config {
             Ok(c) => c,
             Err(e) => return Err(Box::new(e)),
         };
-        
+
         if config.host.is_some() || config.port.is_some() {
-            eprintln!("The host/port keys are depricated in favor \
-            of interface and may be removed in the future.");
+            eprintln!(
+                "The host/port keys are depricated in favor \
+            of interface and may be removed in the future."
+            );
         }
-        
+
         if config.interface.is_some() && (config.host.is_some() || config.port.is_some()) {
-            return Err(Box::new(errors::GemError("You need to specify either host/port or interface".into())));
+            return Err(Box::new(errors::GemError(
+                "You need to specify either host/port or interface".into(),
+            )));
         } else if config.interface.is_none() && config.host.is_none() && config.port.is_none() {
-            return Err(Box::new(errors::GemError("You need to specify either host/port or interface".into())));
+            return Err(Box::new(errors::GemError(
+                "You need to specify either host/port or interface".into(),
+            )));
         } else if config.host.is_some() && config.port.is_some() {
             return Ok(config);
         } else if config.interface.is_some() {
             return Ok(config);
-        } 
-        return Err(Box::new(errors::GemError("You need to specify either host/port or interface".into())));
+        }
+        return Err(Box::new(errors::GemError(
+            "You need to specify either host/port or interface".into(),
+        )));
     }
     pub fn to_map(&self) -> HashMap<String, ServerCfg> {
         let mut map = HashMap::new();
@@ -90,7 +100,7 @@ impl Config {
             map.insert(
                 srv.hostname.clone(),
                 ServerCfg {
-                //    port: self.port.clone(),
+                    //    port: self.port.clone(),
                     server: srv.clone(),
                 },
             );

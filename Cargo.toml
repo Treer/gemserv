@@ -1,6 +1,6 @@
 [package]
 name = "gemserv"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["int 80h <int@80h.dev>"]
 edition = "2018"
 description = "A gemini server"
@@ -15,8 +15,7 @@ license = "MIT"
 
 [dependencies]
 tokio = { version = "1.14", features = [ "full" ] }
-openssl = "0.10.38"
-tokio-openssl = "0.6.3"
+rustls-pemfile = "0.2.1"
 futures-util = "0.3.18"
 toml = "0.5.8"
 serde = "1.0.130"
@@ -26,6 +25,13 @@ new_mime_guess = "3.0.2"
 mime = "0.3.16"
 log = "0.4.14"
 simple_logger = "1.15"
+sha2 = "0.9.8"
+x509-parser = "0.12"
+
+[dependencies.tokio-rustls]
+version = "0.23.1"
+optional = false
+features = ["dangerous_configuration"]
 
 [features]
 default = [ "cgi", "scgi", "proxy" ]

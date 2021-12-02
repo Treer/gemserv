@@ -2,15 +2,15 @@ use std::io;
 use std::marker::Unpin;
 use std::net::SocketAddr;
 
-use tokio::net::TcpStream;
 use tokio::io::AsyncRead;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio_openssl::SslStream;
+use tokio::net::TcpStream;
+use tokio_rustls::server::TlsStream;
 
 use crate::status::Status;
 
 pub struct Connection {
-    pub stream: SslStream<TcpStream>,
+    pub stream: TlsStream<TcpStream>,
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
     pub srv: crate::config::ServerCfg,
@@ -38,7 +38,11 @@ impl Connection {
             self.send_raw(b.as_bytes()).await?;
         }
 
-        futures_util::future::poll_fn(|ctx| std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)).await.unwrap();
+        futures_util::future::poll_fn(|ctx| {
+            std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)
+        })
+        .await
+        .unwrap();
 
         Ok(())
     }
@@ -49,9 +53,16 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn send_stream<S: AsyncRead + Unpin>(&mut self, reader: &mut S) -> Result<(), io::Error> {
+    pub async fn send_stream<S: AsyncRead + Unpin>(
+        &mut self,
+        reader: &mut S,
+    ) -> Result<(), io::Error> {
         tokio::io::copy(reader, &mut self.stream).await?;
-        futures_util::future::poll_fn(|ctx| std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)).await.unwrap();
+        futures_util::future::poll_fn(|ctx| {
+            std::pin::Pin::new(&mut self.stream).poll_shutdown(ctx)
+        })
+        .await
+        .unwrap();
         Ok(())
     }
 }
