@@ -1,6 +1,5 @@
-use std::fs;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use tokio::fs::{self, File};
+use tokio::io::{self, BufReader, AsyncWrite, AsyncBufReadExt};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use url::Url;
@@ -35,13 +34,14 @@ fn get_mime(path: &Path) -> String {
 }
 
 async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> io::Result<()> {
-    let fd = File::open(path)?;
+    let fd = File::open(path).await?;
     let mut reader = BufReader::with_capacity(1024 * 1024, fd);
-    con.send_status(Status::Success, Some(&meta)).await?;
+    con.send_raw(format!("{} {}\r\n", Status::Success as u8, &meta).as_bytes()).await?;
     loop {
         let len = {
-            let buf = reader.fill_buf()?;
+            let buf = reader.fill_buf().await?;
             con.send_raw(buf).await?;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             buf.len()
         };
         if len == 0 {
@@ -49,6 +49,11 @@ async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> i
         }
         reader.consume(len);
     }
+
+    futures_util::future::poll_fn(|ctx| {
+        std::pin::Pin::new(&mut con.stream).poll_shutdown(ctx)
+    })
+        .await?;
     Ok(())
 }
 
@@ -62,8 +67,9 @@ async fn get_content(path: PathBuf, u: &url::Url) -> Result<String> {
     let mut files: Vec<String> = Vec::new();
 
     // needs work
-    for file in (fs::read_dir(&path)?).flatten() {
-        let m = file.metadata()?;
+    let mut dir = fs::read_dir(&path).await?;
+    while let Some(file) = dir.next_entry().await? {
+        let m = file.metadata().await?;
         let perm = m.permissions();
         if perm.mode() & 0o0444 != 0o0444 {
             continue;

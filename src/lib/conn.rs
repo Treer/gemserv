@@ -47,6 +47,7 @@ impl Connection {
         Ok(())
     }
 
+    // when using send_raw you must manually shutdown the connection
     pub async fn send_raw(&mut self, body: &[u8]) -> Result<(), io::Error> {
         self.stream.write_all(body).await?;
         self.stream.flush().await?;
