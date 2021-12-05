@@ -20,6 +20,10 @@ specified it will look for "/usr/local/etc/gemserv.conf"
 
 cargo install gemserv
 
+## Install from docker
+
+docker pull 080h/gemserv
+
 ## Build from source:
 
  - Clone the repo
