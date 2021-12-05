@@ -18,7 +18,7 @@ pub fn init(loglev: &Option<String>) -> errors::Result {
         },
     };
     simple_logger::init_with_level(loglev).unwrap();
-    return Ok(());
+    Ok(())
 }
 
 pub fn logger(addr: SocketAddr, stat: status::Status, req: &str) {

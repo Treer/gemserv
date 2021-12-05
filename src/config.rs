@@ -90,9 +90,9 @@ impl Config {
         } else if config.interface.is_some() {
             return Ok(config);
         }
-        return Err(Box::new(errors::GemError(
+        Err(Box::new(errors::GemError(
             "You need to specify either host/port or interface".into(),
-        )));
+        )))
     }
     pub fn to_map(&self) -> HashMap<String, ServerCfg> {
         let mut map = HashMap::new();

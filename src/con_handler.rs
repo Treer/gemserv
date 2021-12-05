@@ -1,9 +1,8 @@
-use new_mime_guess;
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use url::Url;
 
 #[cfg(any(feature = "cgi", feature = "scgi"))]
@@ -17,7 +16,7 @@ use crate::util;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn get_mime(path: &PathBuf) -> String {
+fn get_mime(path: &Path) -> String {
     let mut mime = "text/gemini".to_string();
     if path.is_dir() {
         return mime;
@@ -32,7 +31,7 @@ fn get_mime(path: &PathBuf) -> String {
         None => "text/plain".to_string(),
     };
 
-    return mime;
+    mime
 }
 
 async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> io::Result<()> {
@@ -63,29 +62,27 @@ async fn get_content(path: PathBuf, u: &url::Url) -> Result<String> {
     let mut files: Vec<String> = Vec::new();
 
     // needs work
-    for file in fs::read_dir(&path)? {
-        if let Ok(file) = file {
-            let m = file.metadata()?;
-            let perm = m.permissions();
-            if perm.mode() & 0o0444 != 0o0444 {
-                continue;
-            }
-            let file = file.path();
-            let p = file.strip_prefix(&path).unwrap();
-            let ps = match p.to_str() {
-                Some(s) => s,
-                None => continue,
-            };
-            let ep = match u.join(ps) {
-                Ok(p) => p,
-                _ => continue,
-            };
-            if m.is_dir() {
-                dirs.push(format!("=> {}/ {}/\r\n", ep, p.display()));
-            } else {
-                files.push(format!("=> {} {}\r\n", ep, p.display()));
-            }
+    for file in (fs::read_dir(&path)?).flatten() {
+        let m = file.metadata()?;
+        let perm = m.permissions();
+        if perm.mode() & 0o0444 != 0o0444 {
+            continue;
         }
+        let file = file.path();
+        let p = file.strip_prefix(&path).unwrap();
+        let ps = match p.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        let ep = match u.join(ps) {
+            Ok(p) => p,
+            _ => continue,
+        };
+        if m.is_dir() {
+            dirs.push(format!("=> {}/ {}/\r\n", ep, p.display()));
+        } else {
+            files.push(format!("=> {} {}\r\n", ep, p.display()));
+         }
     }
 
     dirs.sort();
@@ -101,7 +98,7 @@ async fn get_content(path: PathBuf, u: &url::Url) -> Result<String> {
         list.push_str(&file);
     }
 
-    return Ok(list);
+    Ok(list)
 }
 
 // Handle CGI and return Ok(true), or indicate this request wasn't for CGI with Ok(false)
@@ -166,15 +163,12 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
         Some(re) => {
             let u = match url.path() {
                 "/" => "/",
-                _ => url.path().trim_end_matches("/"),
+                _ => url.path().trim_end_matches('/'),
             };
-            match re.get(u) {
-                Some(r) => {
-                    logger::logger(con.peer_addr, Status::RedirectTemporary, &url.as_str());
+            if let Some(r) = re.get(u) {
+                    logger::logger(con.peer_addr, Status::RedirectTemporary, url.as_str());
                     con.send_status(Status::RedirectTemporary, Some(r)).await?;
                     return Ok(());
-                }
-                None => {}
             }
         }
         None => {}
@@ -202,12 +196,9 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     #[cfg(feature = "proxy")]
     match &con.srv.server.proxy {
         Some(pr) => match url.path_segments().map(|c| c.collect::<Vec<_>>()) {
-            Some(s) => match pr.get(s[0]) {
-                Some(p) => {
+            Some(s) => if let Some(p) = pr.get(s[0]) {
                     revproxy::proxy(p.to_string(), url, con).await?;
                     return Ok(());
-                }
-                None => {}
             },
             None => {}
         },
@@ -219,14 +210,11 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
         Some(sc) => {
             let u = match url.path() {
                 "/" => "/",
-                _ => url.path().trim_end_matches("/"),
+                _ => url.path().trim_end_matches('/'),
             };
-            match sc.get(u) {
-                Some(r) => {
+            if let Some(r) = sc.get(u) {
                     cgi::scgi(r.to_string(), url, con).await?;
                     return Ok(());
-                }
-                None => {}
             }
         }
         None => {}
@@ -236,7 +224,7 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
 
     if url.path().starts_with("/~") && con.srv.server.usrdir.unwrap_or(false) {
         let usr = url.path().trim_start_matches("/~");
-        let usr: Vec<&str> = usr.splitn(2, "/").collect();
+        let usr: Vec<&str> = usr.splitn(2, '/').collect();
         if cfg!(target_os = "macos") {
             path.push("/Users/");
         } else {
@@ -255,7 +243,7 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     } else {
         path.push(&con.srv.server.dir);
         if url.path() != "" || url.path() != "/" {
-            let decoded = util::url_decode(url.path().trim_start_matches("/").as_bytes());
+            let decoded = util::url_decode(url.path().trim_start_matches('/').as_bytes());
             path.push(decoded);
         }
     }
@@ -263,11 +251,11 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     if !path.exists() {
         // See if it's a subpath of a CGI script before returning NotFound
         #[cfg(feature = "cgi")]
-        if handle_cgi(&mut con, &url.as_str(), &url, &path).await? {
+        if handle_cgi(&mut con, url.as_str(), &url, &path).await? {
             return Ok(());
         }
 
-        logger::logger(con.peer_addr, Status::NotFound, &url.as_str());
+        logger::logger(con.peer_addr, Status::NotFound, url.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
@@ -278,8 +266,8 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     // TODO fix me
     // This block is terrible
     if meta.is_dir() {
-        if !url.path().ends_with("/") {
-            logger::logger(con.peer_addr, Status::RedirectPermanent, &url.as_str());
+        if !url.path().ends_with('/') {
+            logger::logger(con.peer_addr, Status::RedirectPermanent, url.as_str());
             con.send_status(
                 Status::RedirectPermanent,
                 Some(format!("{}/", url).as_str()),
@@ -302,18 +290,18 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     }
 
     #[cfg(feature = "cgi")]
-    if handle_cgi(&mut con, &url.as_str(), &url, &path).await? {
+    if handle_cgi(&mut con, url.as_str(), &url, &path).await? {
         return Ok(());
     }
 
     if meta.is_file() && perm.mode() & 0o0111 == 0o0111 {
-        logger::logger(con.peer_addr, Status::NotFound, &url.as_str());
+        logger::logger(con.peer_addr, Status::NotFound, url.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
 
     if perm.mode() & 0o0444 != 0o0444 {
-        logger::logger(con.peer_addr, Status::NotFound, &url.as_str());
+        logger::logger(con.peer_addr, Status::NotFound, url.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
@@ -323,14 +311,14 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
         mime += &("; lang=".to_string() + &con.srv.server.lang.to_owned().unwrap());
     }
     if !mime.starts_with("text/") {
-        logger::logger(con.peer_addr, Status::Success, &url.as_str());
+        logger::logger(con.peer_addr, Status::Success, url.as_str());
         get_binary(con, path, mime).await?;
         return Ok(());
     }
     let content = get_content(path, &url).await?;
     con.send_body(Status::Success, Some(&mime), Some(content))
         .await?;
-    logger::logger(con.peer_addr, Status::Success, &url.as_str());
+    logger::logger(con.peer_addr, Status::Success, url.as_str());
 
     Ok(())
 }

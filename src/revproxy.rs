@@ -15,13 +15,13 @@ use crate::status::Status;
 use crate::tls;
 
 pub async fn proxy(addr: String, u: url::Url, mut con: conn::Connection) -> Result<(), io::Error> {
-    let p: Vec<&str> = u.path().trim_start_matches("/").splitn(2, "/").collect();
+    let p: Vec<&str> = u.path().trim_start_matches('/').splitn(2, '/').collect();
     if p.len() == 1 {
         logger::logger(con.peer_addr, Status::NotFound, u.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());
     }
-    if p[1] == "" || p[1] == "/" {
+    if p[1].is_empty() || p[1] == "/" {
         logger::logger(con.peer_addr, Status::NotFound, u.as_str());
         con.send_status(Status::NotFound, None).await?;
         return Ok(());

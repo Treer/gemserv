@@ -54,8 +54,7 @@ fn envs(
 
     if let Some(cert) = session.peer_certificates() {
         let cert = tokio_rustls::rustls::Certificate::as_ref(&cert[0]);
-        match x509_parser::parse_x509_certificate(cert) {
-            Ok((_, x509)) => {
+        if let Ok((_, x509)) = x509_parser::parse_x509_certificate(cert) {
                 let user = x509
                     .subject()
                     .iter_common_name()
@@ -65,9 +64,7 @@ fn envs(
 
                 envs.insert("AUTH_TYPE".to_string(), "Certificate".to_string());
                 envs.insert("REMOTE_USER".to_string(), user.to_string());
-                envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(&cert));
-            }
-            Err(_) => {}
+                envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(cert));
         }
     }
 
@@ -109,15 +106,12 @@ pub async fn cgi(
     path_info: String,
 ) -> Result<(), io::Error> {
     let (_, session) = con.stream.get_ref();
-    let mut envs = envs(con.peer_addr, session, &con.srv, &url);
+    let mut envs = envs(con.peer_addr, session, &con.srv, url);
     envs.insert("SCRIPT_NAME".into(), script_name);
     envs.insert("PATH_INFO".into(), path_info);
 
-    match path.parent() {
-        Some(p) => {
+    if let Some(p) = path.parent() {
             std::env::set_current_dir(p)?;
-        }
-        None => {}
     }
 
     let cmd = Command::new(path.to_str().unwrap())
@@ -154,7 +148,7 @@ pub async fn cgi(
     }
 
     con.send_raw(&cmd).await?;
-    return Ok(());
+    Ok(())
 }
 
 #[cfg(feature = "scgi")]
@@ -175,12 +169,12 @@ pub async fn scgi(addr: String, u: url::Url, mut con: conn::Connection) -> Resul
     let (_, session) = con.stream.get_ref();
     let envs = envs(con.peer_addr, session, &con.srv, &u);
     let len = 0usize;
-    let mut byt = String::from(format!(
+    let mut byt = format!(
         "CONTENT_LENGTH\x00{}\x00SCGI\x001\x00
         RQUEST_METHOD\x00POST\x00REQUEST_URI\x00{}\x00",
         len,
         u.path()
-    ));
+    );
     for (k, v) in envs.iter() {
         byt.push_str(&format!("{}\x00{}\x00", k, v));
     }

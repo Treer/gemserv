@@ -169,9 +169,9 @@ pub async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection,
         request = request.replacen("//", "gemini://", 1);
     }
 
-    if request.ends_with("\n") {
+    if request.ends_with('\n') {
         request.pop();
-        if request.ends_with("\r") {
+        if request.ends_with('\r') {
             request.pop();
         }
     }
@@ -187,36 +187,30 @@ pub async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection,
         }
     };
 
-    match url.host_str() {
-        Some(h) => {
-            if con.srv.server.hostname.as_str() != h.to_lowercase() {
-                logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
-                con.send_status(Status::ProxyRequestRefused, None)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                return Err(Box::new(GemError("Wrong host".into())));
-            }
+    if let Some(h) = url.host_str() {
+        if con.srv.server.hostname.as_str() != h.to_lowercase() {
+            logger::logger(con.peer_addr, Status::ProxyRequestRefused, url.as_str());
+            con.send_status(Status::ProxyRequestRefused, None)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Err(Box::new(GemError("Wrong host".into())));
         }
-        None => {}
     }
-    match url.port() {
-        Some(p) => {
-            if p != con.local_addr.port() {
-                logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
-                con.send_status(Status::ProxyRequestRefused, None)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
+    if let Some(p) = url.port() {
+        if p != con.local_addr.port() {
+            logger::logger(con.peer_addr, Status::ProxyRequestRefused, url.as_str());
+            con.send_status(Status::ProxyRequestRefused, None)
+                .await
+                .map_err(|e| e.to_string())?;
         }
-        None => {}
     }
     if url.scheme() != "gemini" {
-        logger::logger(con.peer_addr, Status::ProxyRequestRefused, &url.as_str());
+        logger::logger(con.peer_addr, Status::ProxyRequestRefused, url.as_str());
         con.send_status(Status::ProxyRequestRefused, None)
             .await
             .map_err(|e| e.to_string())?;
         return Err(Box::new(GemError("scheme not gemini".into())));
     }
 
-    return Ok((con, url));
+    Ok((con, url))
 }

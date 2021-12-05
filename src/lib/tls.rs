@@ -27,13 +27,13 @@ pub fn tls_acceptor_conf(cfg: config::Config) -> io::Result<TlsAcceptor> {
     Ok(acceptor)
 }
 
-pub fn load_certs(path: &String) -> io::Result<Vec<Certificate>> {
+pub fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
     certs(&mut BufReader::new(File::open(path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
         .map(|mut certs| certs.drain(..).map(Certificate).collect())
 }
 
-fn load_key(path: &String) -> io::Result<Vec<PrivateKey>> {
+fn load_key(path: &str) -> io::Result<Vec<PrivateKey>> {
     pkcs8_private_keys(&mut std::io::BufReader::new(std::fs::File::open(path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).collect())

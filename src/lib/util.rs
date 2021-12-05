@@ -5,8 +5,9 @@ pub fn url_decode(url: &[u8]) -> String {
     let decoded: String = form_urlencoded::parse(url)
         .map(|(key, val)| [key, val].concat())
         .collect();
-    return decoded;
+    decoded
 }
+
 pub fn fingerhex(x509: &[u8]) -> String {
     let mut finger = sha2::Sha256::new();
     finger.update(&x509);

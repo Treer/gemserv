@@ -30,7 +30,7 @@ impl Connection {
     ) -> Result<(), io::Error> {
         let meta = match meta {
             Some(m) => m,
-            None => &stat.to_str(),
+            None => stat.to_str(),
         };
         self.send_raw(format!("{} {}\r\n", stat as u8, meta).as_bytes())
             .await?;

@@ -73,5 +73,5 @@ async fn main() -> errors::Result {
     {
         return Err(e);
     };
-    return Ok(());
+    Ok(())
 }

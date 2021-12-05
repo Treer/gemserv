@@ -29,7 +29,7 @@ pub enum Status {
 
 impl Status {
     pub fn to_str(&self) -> &str {
-        let meta = match self {
+        match self {
             Status::Input => "Input",
             Status::Success => "Success",
             Status::SuccessEndOfSession => "Success End Of Session",
@@ -51,8 +51,7 @@ impl Status {
             Status::CertificateNotAccepted => "Certificate Not Accepted",
             Status::FutureCertificateRejected => "Future Certificate Rejected",
             Status::ExpiredCertificateRejected => "Expired Certificate Rejected",
-        };
-        return meta;
+        }
     }
 }
 
