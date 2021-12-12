@@ -41,7 +41,6 @@ async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> i
         let len = {
             let buf = reader.fill_buf().await?;
             con.send_raw(buf).await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             buf.len()
         };
         if len == 0 {
@@ -57,12 +56,7 @@ async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> i
     Ok(())
 }
 
-async fn get_content(path: PathBuf, u: &url::Url) -> Result<String> {
-    let meta = tokio::fs::metadata(&path).await?;
-    if meta.is_file() {
-        return Ok(tokio::fs::read_to_string(path).await?);
-    }
-
+async fn gen_dir_list(path: PathBuf, u: &url::Url) -> Result<String> {
     let mut dirs: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
 
@@ -201,12 +195,13 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
 
     #[cfg(feature = "proxy")]
     match &con.srv.server.proxy {
-        Some(pr) => match url.path_segments().map(|c| c.collect::<Vec<_>>()) {
-            Some(s) => if let Some(p) = pr.get(s[0]) {
+        Some(pr) => {
+            if let Some(s) = url.path_segments().map(|c| c.collect::<Vec<_>>()) {
+                if let Some(p) = pr.get(s[0]) {
                     revproxy::proxy(p.to_string(), url, con).await?;
                     return Ok(());
-            },
-            None => {}
+                }
+            }
         },
         None => {}
     }
@@ -313,18 +308,35 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     }
 
     let mut mime = get_mime(&path);
-    if mime == "text/gemini" && con.srv.server.lang.is_some() {
-        mime += &("; lang=".to_string() + &con.srv.server.lang.to_owned().unwrap());
-    }
-    if !mime.starts_with("text/") {
-        logger::logger(con.peer_addr, Status::Success, url.as_str());
-        get_binary(con, path, mime).await?;
-        return Ok(());
-    }
-    let content = get_content(path, &url).await?;
-    con.send_body(Status::Success, Some(&mime), Some(content))
+    if meta.is_file() {
+        if mime == "text/gemini" && con.srv.server.lang.is_some() {
+            mime += &("; lang=".to_string() + &con.srv.server.lang.to_owned().unwrap());
+        }
+        if !mime.starts_with("text/") {
+            logger::logger(con.peer_addr, Status::Success, url.as_str());
+            get_binary(con, path, mime).await?;
+            return Ok(());
+        }
+        match fs::read_to_string(path).await {
+            Ok(c) => {
+                con.send_body(Status::Success, Some(&mime), Some(c))
+                .await?;
+                logger::logger(con.peer_addr, Status::Success, url.as_str());
+            }
+            Err(e) => {
+                println!("{}", e);
+                con.send_status(Status::NotFound, None)
+                .await?;
+                logger::logger(con.peer_addr, Status::NotFound, url.as_str());
+            }
+        }
+
+    } else {
+        let dir = gen_dir_list(path, &url).await?;
+        con.send_body(Status::Success, Some(&mime), Some(dir))
         .await?;
-    logger::logger(con.peer_addr, Status::Success, url.as_str());
+        logger::logger(con.peer_addr, Status::Success, url.as_str());
+    }
 
     Ok(())
 }

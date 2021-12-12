@@ -14,22 +14,22 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.14", features = [ "full" ] }
+tokio = { version = "1.15", features = [ "full" ] }
 rustls-pemfile = "0.2.1"
-futures-util = "0.3.18"
+futures-util = "0.3.19"
 toml = "0.5.8"
-serde = "1.0.130"
-serde_derive = "1.0.130"
+serde = "1.0.132"
+serde_derive = "1.0.132"
 url = "2.2.2"
 new_mime_guess = "3.0.2"
 mime = "0.3.16"
 log = "0.4.14"
-simple_logger = "1.15"
+simple_logger = "1.16"
 sha2 = "0.9.8"
 x509-parser = "0.12"
 
 [dependencies.tokio-rustls]
-version = "0.23.1"
+version = "0.23.2"
 optional = false
 features = ["dangerous_configuration"]
 

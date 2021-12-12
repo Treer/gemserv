@@ -4,7 +4,6 @@ use tokio::net::TcpListener;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
-//use futures_util::future::TryFutureExt;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
@@ -71,12 +70,10 @@ impl Server {
     pub async fn serve(
         self,
         cmap: HashMap<String, config::ServerCfg>,
-        default: String,
         handler: impl Handler + 'static + Copy,
     ) -> Result {
         for listen in self.listener {
             let cmap = cmap.clone();
-            let default = default.clone();
             let listen = Arc::new(listen);
             let acceptor = Arc::new(self.acceptor.clone());
 
@@ -86,8 +83,7 @@ impl Server {
                     let local_addr = stream.local_addr().unwrap();
                     let acceptor = acceptor.clone();
                     let cmap = cmap.clone();
-                    let default = default.clone();
-                    let mut handler = handler.clone();
+                    let mut handler = handler;
 
                     tokio::spawn(async move {
                         let mut stream = match acceptor.accept(stream).await {
@@ -105,7 +101,7 @@ impl Server {
 
                         let srv = match cmap.get(sni) {
                             Some(h) => h,
-                            None => cmap.get(&default).unwrap(),
+                            None => return Ok(()) as io::Result<()>,
                         }
                         .to_owned();
 
@@ -138,7 +134,7 @@ impl Server {
     }
 }
 
-pub async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection, url::Url)> {
+async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection, url::Url)> {
     let mut buffer = [0; 1024];
     let len = match tokio::time::timeout(
         tokio::time::Duration::from_secs(5),

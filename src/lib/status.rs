@@ -28,7 +28,7 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn to_str(&self) -> &str {
+    pub fn to_str(self) -> &'static str {
         match self {
             Status::Input => "Input",
             Status::Success => "Success",

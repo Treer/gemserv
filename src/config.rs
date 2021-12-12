@@ -4,7 +4,10 @@ use crate::lib::errors;
 use std::collections::HashMap;
 use std::env;
 use std::path;
+use std::net;
+use std::net::ToSocketAddrs;
 use tokio::fs;
+use tokio::io;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -12,7 +15,7 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + 
 pub struct Config {
     pub port: Option<u16>,
     pub host: Option<String>,
-    pub interface: Option<Vec<String>>,
+    pub interface: Option<Vec<net::SocketAddr>>,
     pub log: Option<String>,
     pub server: Vec<Server>,
 }
@@ -65,7 +68,7 @@ impl Config {
         }
 
         let fd = fs::read_to_string(p).await.unwrap();
-        let config: Config = match toml::from_str(&fd) {
+        let mut config: Config = match toml::from_str(&fd) {
             Ok(c) => c,
             Err(e) => return Err(Box::new(e)),
         };
@@ -86,8 +89,18 @@ impl Config {
                 "You need to specify either host/port or interface".into(),
             )));
         } else if config.host.is_some() && config.port.is_some() {
+            let mut addr: Vec<std::net::SocketAddr> = Vec::new();
+            addr.push(
+                format!("{}:{}", &config.host.to_owned().unwrap(), &config.port.unwrap())
+                    .to_socket_addrs()?
+                    .next()
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?,
+            );
+            config.interface = Some(addr);
             return Ok(config);
-        } else if config.interface.is_some() {
+        } else if let Some(ref mut i) = config.interface {
+            i.sort_by(|a, b| a.port().cmp(&b.port()));
+            i.dedup();
             return Ok(config);
         }
         Err(Box::new(errors::GemError(
