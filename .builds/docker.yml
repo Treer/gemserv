@@ -1,0 +1,34 @@
+image: alpine/edge
+packages:
+  - docker
+  - shadow
+  - rust
+  - cargo
+sources:
+  - https://git.sr.ht/~int80h/gemserv
+environment:
+  project: gemserv
+  docker_user: 080h
+  docker_image: 080h/gemserv
+secrets:
+- 164835df-b4d3-4253-91a4-8b9b4c4b1383
+tasks:
+  - skip_if_not_release: |
+      cd $project
+      git describe --exact-match HEAD || complete-build 
+  - setup: |
+      sudo service docker start
+      sleep 2
+      sudo usermod -aG docker $(whoami)
+  - build: |
+      cd $project
+      docker version
+      version=$(git describe --exact-match HEAD | tr -d 'v')
+      docker build . -t $docker_image:latest -t $docker_image:$version
+  - publish: |
+      cat ~/.docker-secret | docker login --username $docker_user --password-stdin
+      docker push $docker_image --all-tags
+triggers:
+  - action: email
+    condition: failure
+    to: "<int@80h.dev>"
