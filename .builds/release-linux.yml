@@ -1,0 +1,35 @@
+image: alpine/edge
+packages:
+  - rustup
+  - build-base
+sources:
+  - https://git.sr.ht/~int80h/gemserv
+environment:
+  project: gemserv
+  os: linux
+  target: x86_64-unknown-linux-musl
+secrets:
+  - d292a96c-3d20-46e8-b7e5-5a969baaa60f
+tasks:
+  - skip_if_not_release: |
+      cd $project
+      git describe --exact-match HEAD || complete-build
+  - setup: |
+      rustup-init -t $target -y
+  - build: |
+      cd $project
+      source $HOME/.cargo/env
+      cargo build --target $target --release
+      strip -s ./target/$target/release/"$project"
+  - publish: |
+      cd $project
+      tag=$(git describe --exact-match HEAD)
+      mkdir "$project-$tag-$os-x86_64"
+      cp ./target/$target/release/"$project" config.toml README LICENSE "$project-$tag-$os-x86_64/"
+      tar cvzf "./$project-$tag-$os-x86_64.tar.gz" "./$project-$tag-$os-x86_64"
+      set +x
+      curl -H Authorization:"token $(< ~/.token)" -F file=@"$project-$tag-$os-x86_64.tar.gz" https://git.sr.ht/api/repos/"$project"/artifacts/"$tag"
+triggers:
+  - action: email
+    condition: failure
+    to: "<int@80h.dev>"

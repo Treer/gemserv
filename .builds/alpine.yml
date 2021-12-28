@@ -8,3 +8,7 @@ tasks:
   - build: |
         cd gemserv/
         cargo build
+triggers:
+  - action: email
+    condition: failure
+    to: "<int@80h.dev>"
