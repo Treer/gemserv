@@ -5,11 +5,11 @@ use std::net::SocketAddr;
 
 pub fn init(loglev: &Option<String>) -> errors::Result {
     let loglev = match loglev {
-        None => log::Level::Info,
+        None => log::LevelFilter::Info,
         Some(l) => match l.as_str() {
-            "error" => log::Level::Error,
-            "warn" => log::Level::Warn,
-            "info" => log::Level::Info,
+            "error" => log::LevelFilter::Error,
+            "warn" => log::LevelFilter::Warn,
+            "info" => log::LevelFilter::Info,
             _ => {
                 return Err(Box::new(errors::GemError(
                     "Incorrect log level in config file.".to_string(),
@@ -17,7 +17,7 @@ pub fn init(loglev: &Option<String>) -> errors::Result {
             }
         },
     };
-    simple_logger::init_with_level(loglev).unwrap();
+    simple_logger::SimpleLogger::new().with_level(loglev).with_utc_timestamps().init().unwrap();
     Ok(())
 }
 
