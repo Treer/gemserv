@@ -17,7 +17,10 @@ pub fn init(loglev: &Option<String>) -> errors::Result {
             }
         },
     };
-    simple_logger::SimpleLogger::new().with_level(loglev).with_utc_timestamps().init().unwrap();
+    simple_logger::SimpleLogger::new()
+        .with_level(loglev)
+        .with_utc_timestamps()
+        .init()?;
     Ok(())
 }
 

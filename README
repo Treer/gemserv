@@ -10,21 +10,26 @@ A gemini server written in rust.
  - Reverse proxy
  - Redirect
  - SCGI
+ - Reload config on SIGHUP
 
 ## Installation and running
 
 To run either run "cargo run /path/to/config" or if no configuration is
 specified it will look for "/usr/local/etc/gemserv.conf"
 
-## Install from crates.io:
+### Prebuilt binaries
+
+You can download prebuilt binaries for linux on the release page.
+
+### Install from crates.io:
 
 cargo install gemserv
 
-## Install from docker
+### Install from docker
 
 docker pull 080h/gemserv
 
-## Build from source:
+### Build from source:
 
  - Clone the repo
  - If you want to use all features run 'cargo build --release' or if you only
@@ -32,7 +37,7 @@ docker pull 080h/gemserv
  - Modify the config.toml to your needs
  - Run './target/release/gemserv config.toml'
 
-### Init scripts
+## Init scripts
 
 In the init-scripts directory there's OpenRC(Courtesy of Tastytea) and systemd
 service files.

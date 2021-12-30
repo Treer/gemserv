@@ -3,9 +3,9 @@ extern crate toml;
 use crate::lib::errors;
 use std::collections::HashMap;
 use std::env;
-use std::path;
 use std::net;
 use std::net::ToSocketAddrs;
+use std::path;
 use tokio::fs;
 use tokio::io;
 
@@ -91,10 +91,14 @@ impl Config {
         } else if config.host.is_some() && config.port.is_some() {
             let mut addr: Vec<std::net::SocketAddr> = Vec::new();
             addr.push(
-                format!("{}:{}", &config.host.to_owned().unwrap(), &config.port.unwrap())
-                    .to_socket_addrs()?
-                    .next()
-                    .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?,
+                format!(
+                    "{}:{}",
+                    &config.host.to_owned().unwrap(),
+                    &config.port.unwrap()
+                )
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?,
             );
             config.interface = Some(addr);
             return Ok(config);

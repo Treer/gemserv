@@ -55,16 +55,16 @@ fn envs(
     if let Some(cert) = session.peer_certificates() {
         let cert = tokio_rustls::rustls::Certificate::as_ref(&cert[0]);
         if let Ok((_, x509)) = x509_parser::parse_x509_certificate(cert) {
-                let user = x509
-                    .subject()
-                    .iter_common_name()
-                    .next()
-                    .and_then(|cn| cn.as_str().ok())
-                    .unwrap();
+            let user = x509
+                .subject()
+                .iter_common_name()
+                .next()
+                .and_then(|cn| cn.as_str().ok())
+                .unwrap();
 
-                envs.insert("AUTH_TYPE".to_string(), "Certificate".to_string());
-                envs.insert("REMOTE_USER".to_string(), user.to_string());
-                envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(cert));
+            envs.insert("AUTH_TYPE".to_string(), "Certificate".to_string());
+            envs.insert("REMOTE_USER".to_string(), user.to_string());
+            envs.insert("TLS_CLIENT_HASH".to_string(), util::fingerhex(cert));
         }
     }
 
@@ -111,7 +111,7 @@ pub async fn cgi(
     envs.insert("PATH_INFO".into(), path_info);
 
     if let Some(p) = path.parent() {
-            std::env::set_current_dir(p)?;
+        std::env::set_current_dir(p)?;
     }
 
     let cmd = Command::new(path.to_str().unwrap())

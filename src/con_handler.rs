@@ -1,7 +1,7 @@
-use tokio::fs::{self, File};
-use tokio::io::{self, BufReader, AsyncWrite, AsyncBufReadExt};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use tokio::fs::{self, File};
+use tokio::io::{self, AsyncBufReadExt, AsyncWrite, BufReader};
 use url::Url;
 
 #[cfg(any(feature = "cgi", feature = "scgi"))]
@@ -36,7 +36,8 @@ fn get_mime(path: &Path) -> String {
 async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> io::Result<()> {
     let fd = File::open(path).await?;
     let mut reader = BufReader::with_capacity(1024 * 1024, fd);
-    con.send_raw(format!("{} {}\r\n", Status::Success as u8, &meta).as_bytes()).await?;
+    con.send_raw(format!("{} {}\r\n", Status::Success as u8, &meta).as_bytes())
+        .await?;
     loop {
         let len = {
             let buf = reader.fill_buf().await?;
@@ -49,9 +50,7 @@ async fn get_binary(mut con: conn::Connection, path: PathBuf, meta: String) -> i
         reader.consume(len);
     }
 
-    futures_util::future::poll_fn(|ctx| {
-        std::pin::Pin::new(&mut con.stream).poll_shutdown(ctx)
-    })
+    futures_util::future::poll_fn(|ctx| std::pin::Pin::new(&mut con.stream).poll_shutdown(ctx))
         .await?;
     Ok(())
 }
@@ -82,7 +81,7 @@ async fn gen_dir_list(path: PathBuf, u: &url::Url) -> Result<String> {
             dirs.push(format!("=> {}/ {}/\r\n", ep, p.display()));
         } else {
             files.push(format!("=> {} {}\r\n", ep, p.display()));
-         }
+        }
     }
 
     dirs.sort();
@@ -166,9 +165,9 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
                 _ => url.path().trim_end_matches('/'),
             };
             if let Some(r) = re.get(u) {
-                    logger::logger(con.peer_addr, Status::RedirectTemporary, url.as_str());
-                    con.send_status(Status::RedirectTemporary, Some(r)).await?;
-                    return Ok(());
+                logger::logger(con.peer_addr, Status::RedirectTemporary, url.as_str());
+                con.send_status(Status::RedirectTemporary, Some(r)).await?;
+                return Ok(());
             }
         }
         None => {}
@@ -202,7 +201,7 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
                     return Ok(());
                 }
             }
-        },
+        }
         None => {}
     }
 
@@ -214,8 +213,8 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
                 _ => url.path().trim_end_matches('/'),
             };
             if let Some(r) = sc.get(u) {
-                    cgi::scgi(r.to_string(), url, con).await?;
-                    return Ok(());
+                cgi::scgi(r.to_string(), url, con).await?;
+                return Ok(());
             }
         }
         None => {}
@@ -319,22 +318,19 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
         }
         match fs::read_to_string(path).await {
             Ok(c) => {
-                con.send_body(Status::Success, Some(&mime), Some(c))
-                .await?;
+                con.send_body(Status::Success, Some(&mime), Some(c)).await?;
                 logger::logger(con.peer_addr, Status::Success, url.as_str());
             }
             Err(e) => {
                 println!("{}", e);
-                con.send_status(Status::NotFound, None)
-                .await?;
+                con.send_status(Status::NotFound, None).await?;
                 logger::logger(con.peer_addr, Status::NotFound, url.as_str());
             }
         }
-
     } else {
         let dir = gen_dir_list(path, &url).await?;
         con.send_body(Status::Success, Some(&mime), Some(dir))
-        .await?;
+            .await?;
         logger::logger(con.peer_addr, Status::Success, url.as_str());
     }
 

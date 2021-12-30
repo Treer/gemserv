@@ -1,6 +1,7 @@
 #![allow(unreachable_code)]
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
+use tokio::sync::watch::Receiver;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
@@ -71,65 +72,70 @@ impl Server {
         self,
         cmap: HashMap<String, config::ServerCfg>,
         handler: impl Handler + 'static + Copy,
+        shutdown: Receiver<bool>,
     ) -> Result {
         for listen in self.listener {
             let cmap = cmap.clone();
             let listen = Arc::new(listen);
             let acceptor = Arc::new(self.acceptor.clone());
+            let mut shutdown = shutdown.clone();
 
             tokio::spawn(async move {
                 loop {
-                    let (stream, peer_addr) = listen.accept().await?;
-                    let local_addr = stream.local_addr().unwrap();
-                    let acceptor = acceptor.clone();
-                    let cmap = cmap.clone();
-                    let mut handler = handler;
+                    tokio::select! {
+                        _ = shutdown.changed() => {
+                            break
+                        }
+                        Ok((stream, peer_addr)) = listen.accept() => {
+                        let local_addr = stream.local_addr().unwrap();
+                        let acceptor = acceptor.clone();
+                        let cmap = cmap.clone();
+                        let mut handler = handler;
 
-                    tokio::spawn(async move {
-                        let mut stream = match acceptor.accept(stream).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                log::error!("Error: {}", e);
-                                return Ok(());
+                        tokio::spawn(async move {
+                            let mut stream = match acceptor.accept(stream).await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    log::error!("Error: {}", e);
+                                    return Ok(());
+                                }
+                            };
+                            let (_, sni) = TlsStream::get_mut(&mut stream);
+                            let sni = match sni.sni_hostname() {
+                                Some(s) => s,
+                                None => return Ok(()),
+                            };
+
+                            let srv = match cmap.get(sni) {
+                                Some(h) => h,
+                                None => return Ok(()) as io::Result<()>,
                             }
-                        };
-                        let (_, sni) = TlsStream::get_mut(&mut stream);
-                        let sni = match sni.sni_hostname() {
-                            Some(s) => s,
-                            None => return Ok(()),
-                        };
+                            .to_owned();
 
-                        let srv = match cmap.get(sni) {
-                            Some(h) => h,
-                            None => return Ok(()) as io::Result<()>,
-                        }
-                        .to_owned();
+                            let con = conn::Connection {
+                                stream,
+                                local_addr,
+                                peer_addr,
+                                srv,
+                            };
+                            let (con, url) = match get_request(con).await {
+                                Ok((c, u)) => (c, u),
+                                Err(_) => return Ok(()) as io::Result<()>,
+                            };
 
-                        let con = conn::Connection {
-                            stream,
-                            local_addr,
-                            peer_addr,
-                            srv,
-                        };
-                        let (con, url) = match get_request(con).await {
-                            Ok((c, u)) => (c, u),
-                            Err(_) => return Ok(()) as io::Result<()>,
-                        };
+                            match handler(con, url).await {
+                                Ok(o) => o,
+                                Err(_) => return Ok(()) as io::Result<()>,
+                            }
 
-                        match handler(con, url).await {
-                            Ok(o) => o,
-                            Err(_) => return Ok(()) as io::Result<()>,
-                        }
-
-                        Ok(()) as io::Result<()>
-                    });
+                            Ok(())
+                        });
+                    }
+                    }
                 }
-                Ok(()) as io::Result<()>
+                Ok(()) as Result
             });
         }
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to listen for event");
         Ok(())
     }
 }
