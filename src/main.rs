@@ -85,9 +85,9 @@ async fn signal_select(send: watch::Sender<bool>) -> errors::Result {
 async fn main() -> errors::Result {
     let (send, recv) = watch::channel(true);
     tokio::spawn(async move {
-        run(recv).await?;
+        signal_select(send).await?;
         return Ok(()) as errors::Result;
     });
-    signal_select(send).await?;
+    run(recv).await?;
     Ok(())
 }
