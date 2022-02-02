@@ -243,7 +243,7 @@ pub async fn handle_connection(mut con: conn::Connection, url: url::Url) -> Resu
     } else {
         path.push(&con.srv.server.dir);
         if url.path() != "" || url.path() != "/" {
-            let decoded = util::url_decode(url.path().trim_start_matches('/').as_bytes());
+            let decoded = util::url_decode(url.path().as_bytes()).trim_start_matches('/').to_owned();
             path.push(decoded);
         }
     }
