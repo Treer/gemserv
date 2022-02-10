@@ -78,6 +78,10 @@ TLS variables
 
 ## Changelog
 
+### [0.6.5] - 20220209
+
+Bug fix: Another traversal bug.
+
 ### [0.6.4] - 20220202
 
 Fixed a file system traversal bug. All previous versions are unsafe.

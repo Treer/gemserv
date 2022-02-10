@@ -177,6 +177,12 @@ async fn get_request(mut con: conn::Connection) -> Result<(conn::Connection, url
             request.pop();
         }
     }
+    
+    if request.contains("..") {
+        logger::logger(con.peer_addr, Status::BadRequest, &request);
+        con.send_status(Status::BadRequest, None).await?;
+        return Err(Box::new(GemError("Contained ..".into())));
+    }
 
     let url = match Url::parse(&request) {
         Ok(url) => url,
